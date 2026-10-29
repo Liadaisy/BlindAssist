@@ -2,6 +2,7 @@ from collections import defaultdict, deque, Counter
 import sys
 import textwrap
 import tkinter as tk
+from modules.camera import Camera
 
 if hasattr(sys.stdout, "reconfigure"):
     try:
@@ -21,27 +22,77 @@ from bytetrack_wrapper import MultiClassByteTracker
 
 
 # ============================================================
-# CONFIGURATION
+# CONFIGURATION AND INPUT SELECTION
 # ============================================================
 
 print("===================================")
 print("       BlindAssist AI Vision")
 print("===================================")
 
-VIDEO_PATH = r"C:\Users\Aleena Johnson\Downloads\Person_walking_along_roadside_20261009111619.mp4"
 HISTORY_LENGTH = 20
 MOTION_MIN_PIXELS = 12
+
 speaker = Speaker()
 threat_analyzer = ThreatAnalyzer()
+
 malayalam_voice_available = speaker.has_malayalam_voice()
+
 if malayalam_voice_available:
     print("Malayalam speech voice found.")
 else:
     print(
-        "[WARNING] No Malayalam Windows speech voice is installed. "
-        "Malayalam captions will be shown, but not spoken."
+        "[WARNING] No Malayalam speech engine available. "
+        "Malayalam captions will still be shown."
     )
 
+print("\n===== Select Input Source =====")
+print("1. Lab / PC Camera")
+print("2. Phone Camera")
+print("3. Video File")
+print("4. YouTube Video URL")
+print("5. Exit")
+
+choice = input("Enter your choice (1-5): ").strip()
+
+if choice == "5":
+    print("Exiting BlindAssist.")
+    sys.exit(0)
+
+if choice == "1":
+    index = input("Enter camera index (press Enter for 0): ").strip()
+    source = int(index) if index else 0
+    source_type = "camera"
+
+elif choice == "2":
+    phone_source = input(
+        "Enter phone camera index or stream URL: "
+    ).strip()
+
+    if not phone_source:
+        raise ValueError("Phone camera source cannot be empty.")
+
+    if phone_source.isdigit():
+        source = int(phone_source)
+        source_type = "camera"
+    else:
+        source = phone_source
+        source_type = "stream"
+
+elif choice == "3":
+    source = input("Enter the full video file path: ").strip().strip('"')
+    source_type = "video"
+
+elif choice == "4":
+    source = input("Paste the YouTube video URL: ").strip()
+    if not source:
+        raise ValueError("YouTube URL cannot be empty.")
+    source_type = "youtube"
+
+else:
+    raise ValueError("Invalid choice. Run main.py and select 1-5.")
+
+video = Camera(source=source, source_type=source_type)
+print(f"Input opened successfully: {source}")
 
 class MalayalamCaptionWindow:
     def __init__(self):
@@ -49,7 +100,11 @@ class MalayalamCaptionWindow:
         self.root.title("BlindAssist - Malayalam Captions")
         self.root.geometry("800x160")
         self.closed = False
-        self.caption = tk.StringVar(value="ക്യാപ്ഷൻ ഇവിടെ കാണിക്കും.")
+
+        self.caption = tk.StringVar(
+            value="ക്യാപ്ഷൻ ഇവിടെ കാണിക്കും."
+        )
+
         self.label = tk.Label(
             self.root,
             textvariable=self.caption,
@@ -59,12 +114,14 @@ class MalayalamCaptionWindow:
             padx=20,
             pady=20,
         )
+
         self.label.pack(fill=tk.BOTH, expand=True)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
 
     def update(self, caption):
         if self.closed:
             return False
+
         self.caption.set(caption)
         self.root.update_idletasks()
         self.root.update()
@@ -74,17 +131,6 @@ class MalayalamCaptionWindow:
         if not self.closed:
             self.closed = True
             self.root.destroy()
-
-print(f"Opening video: {VIDEO_PATH}")
-video = cv2.VideoCapture(VIDEO_PATH)
-
-if not video.isOpened():
-    raise FileNotFoundError(
-        f"Could not open video:\n{VIDEO_PATH}\n"
-        "Check that the file exists and that VIDEO_PATH is correct."
-    )
-
-
 # ============================================================
 # YOLO26s
 # ============================================================
@@ -323,7 +369,8 @@ def draw_caption(frame, caption):
 
 try:
     while True:
-        success, frame = video.read()
+        frame = video.get_frame()
+        success = frame is not None
         if not success or frame is None:
             print("Video finished or frame could not be read.")
             break
